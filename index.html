@@ -85,6 +85,12 @@
         <div id="riwayat-view" class="hidden">
             <div class="bg-white rounded-xl shadow-lg p-6">
                 <h2 class="text-2xl font-bold mb-4 border-b pb-2 text-gray-900">Riwayat Transaksi</h2>
+                
+                <!-- Summary Section -->
+                <div id="summary-box" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <!-- Summary will be loaded here -->
+                </div>
+
                 <div id="transactions-list" class="space-y-4">
                     <!-- Transaction history will be loaded here -->
                     <p class="text-center text-gray-500 italic">Memuat riwayat transaksi...</p>
@@ -118,6 +124,7 @@
         const tabKasirBtn = document.getElementById('tab-kasir');
         const tabRiwayatBtn = document.getElementById('tab-riwayat');
         const transactionsListEl = document.getElementById('transactions-list');
+        const summaryBoxEl = document.getElementById('summary-box');
 
         // === FUNGSI UTILITAS ===
         function formatPrice(price) {
@@ -201,6 +208,24 @@
             });
         }
 
+        // Merender ringkasan total dan produk terjual
+        function renderSummary(totalRevenue, productsSold) {
+            summaryBoxEl.innerHTML = `
+                <div class="bg-blue-100 p-4 rounded-lg shadow-sm">
+                    <h3 class="text-lg font-bold text-blue-800">Total Pendapatan</h3>
+                    <p class="text-2xl font-bold text-blue-900">${formatPrice(totalRevenue)}</p>
+                </div>
+                <div class="bg-yellow-100 p-4 rounded-lg shadow-sm">
+                    <h3 class="text-lg font-bold text-yellow-800 mb-2">Produk Terjual</h3>
+                    <ul class="text-sm text-yellow-900 space-y-1">
+                        ${[...productsSold.entries()].map(([name, qty]) => `
+                            <li>${name}: <span class="font-semibold">${qty}</span></li>
+                        `).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+
         // Merender riwayat transaksi
         function renderTransactions(transactions) {
             transactionsListEl.innerHTML = '';
@@ -271,20 +296,34 @@
             try {
                 const { data: transactions, error } = await supabase
                     .from('transactions')
-                    .select('*, transaction_items(product_id, quantity, price)');
+                    .select('*, transaction_items(product_id, quantity, price)')
+                    .order('created_at', { ascending: false });
                 
                 if (error) throw error;
 
-                // Memproses data untuk menyertakan nama produk
-                const productsMap = new Map(products.map(p => [p.id, p.name]));
+                // Hitung total pendapatan dan produk terjual
+                let totalRevenue = 0;
+                const productsSold = new Map();
+
                 const transactionsWithNames = transactions.map(tx => {
-                    const itemsWithNames = tx.transaction_items.map(item => ({
-                        ...item,
-                        product_name: productsMap.get(item.product_id)
-                    }));
+                    const productsMap = new Map(products.map(p => [p.id, p.name]));
+                    const itemsWithNames = tx.transaction_items.map(item => {
+                        const productName = productsMap.get(item.product_id);
+                        
+                        // Hitung produk terjual
+                        if (productsSold.has(productName)) {
+                            productsSold.set(productName, productsSold.get(productName) + item.quantity);
+                        } else {
+                            productsSold.set(productName, item.quantity);
+                        }
+
+                        return { ...item, product_name: productName };
+                    });
+                    totalRevenue += parseFloat(tx.total_price);
                     return { ...tx, transaction_items: itemsWithNames };
                 });
 
+                renderSummary(totalRevenue, productsSold);
                 renderTransactions(transactionsWithNames);
             } catch (error) {
                 console.error('Error fetching transactions:', error.message);
