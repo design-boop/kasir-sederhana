@@ -84,7 +84,7 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpemhzdXJpb254Y2xyYXBsbGx2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTg2ODI5NjQsImV4cCI6MjA3NDI1ODk2NH0.xWDL5CWyrWQ7aCx3y1YAVIGArdvWnePc-xF1o2OZZpo';
         
         // Inisialisasi klien Supabase
-        const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // === VARIABEL GLOBAL ===
         let products = [];
@@ -259,4 +259,3 @@
 </body>
 
 </html>
-
