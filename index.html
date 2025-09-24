@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kasir Sederhana</title>
+    <title>Aplikasi Kasir</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase JS CDN -->
@@ -41,8 +41,14 @@
             <p class="text-lg text-gray-600">Terhubung dengan Supabase</p>
         </header>
 
+        <!-- Tabs Navigation -->
+        <div class="flex justify-center mb-6">
+            <button id="tab-kasir" class="px-6 py-2 font-semibold text-lg border-b-2 border-transparent transition-colors duration-300 hover:text-blue-600 hover:border-blue-600">Kasir</button>
+            <button id="tab-riwayat" class="px-6 py-2 font-semibold text-lg border-b-2 border-transparent transition-colors duration-300 hover:text-blue-600 hover:border-blue-600">Riwayat Transaksi</button>
+        </div>
+
         <!-- Main Content Grid -->
-        <main class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        <main id="kasir-view" class="grid grid-cols-1 md:grid-cols-3 gap-8">
 
             <!-- Product List -->
             <div class="col-span-1 md:col-span-2 bg-white rounded-xl shadow-lg p-6">
@@ -75,6 +81,17 @@
 
         </main>
 
+        <!-- Transaction History View -->
+        <div id="riwayat-view" class="hidden">
+            <div class="bg-white rounded-xl shadow-lg p-6">
+                <h2 class="text-2xl font-bold mb-4 border-b pb-2 text-gray-900">Riwayat Transaksi</h2>
+                <div id="transactions-list" class="space-y-4">
+                    <!-- Transaction history will be loaded here -->
+                    <p class="text-center text-gray-500 italic">Memuat riwayat transaksi...</p>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script>
@@ -96,6 +113,11 @@
         const totalPriceEl = document.getElementById('total-price');
         const checkoutBtn = document.getElementById('checkout-btn');
         const messageBoxEl = document.getElementById('message-box');
+        const kasirViewEl = document.getElementById('kasir-view');
+        const riwayatViewEl = document.getElementById('riwayat-view');
+        const tabKasirBtn = document.getElementById('tab-kasir');
+        const tabRiwayatBtn = document.getElementById('tab-riwayat');
+        const transactionsListEl = document.getElementById('transactions-list');
 
         // === FUNGSI UTILITAS ===
         function formatPrice(price) {
@@ -179,6 +201,49 @@
             });
         }
 
+        // Merender riwayat transaksi
+        function renderTransactions(transactions) {
+            transactionsListEl.innerHTML = '';
+            if (transactions.length === 0) {
+                transactionsListEl.innerHTML = `<p class="text-center text-gray-500 italic">Belum ada transaksi.</p>`;
+                return;
+            }
+
+            transactions.forEach(tx => {
+                const transactionCard = document.createElement('div');
+                transactionCard.className = 'bg-gray-50 rounded-lg shadow-sm p-4';
+                const formattedDate = new Date(tx.created_at).toLocaleString('id-ID', {
+                    year: 'numeric', month: 'long', day: 'numeric',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit'
+                });
+                
+                let itemsListHtml = '';
+                tx.transaction_items.forEach(item => {
+                    itemsListHtml += `
+                        <li class="flex justify-between text-sm text-gray-600">
+                            <span>${item.product_name} x ${item.quantity}</span>
+                            <span>${formatPrice(item.price)}</span>
+                        </li>
+                    `;
+                });
+
+                transactionCard.innerHTML = `
+                    <div class="flex justify-between items-center border-b pb-2 mb-2">
+                        <span class="text-sm font-semibold text-gray-700">ID Transaksi: ${tx.id}</span>
+                        <span class="text-xs text-gray-500">${formattedDate}</span>
+                    </div>
+                    <ul class="space-y-1">
+                        ${itemsListHtml}
+                    </ul>
+                    <div class="flex justify-between items-center font-bold text-lg mt-2 pt-2 border-t">
+                        <span>Total:</span>
+                        <span>${formatPrice(tx.total_price)}</span>
+                    </div>
+                `;
+                transactionsListEl.appendChild(transactionCard);
+            });
+        }
+
         // Memperbarui total harga
         function updateTotal() {
             const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -197,6 +262,33 @@
             } catch (error) {
                 console.error('Error fetching products:', error.message);
                 showMessage('Gagal memuat produk. Cek koneksi Supabase Anda.', 'error');
+            }
+        }
+
+        // Mengambil riwayat transaksi dari Supabase
+        async function fetchTransactions() {
+            transactionsListEl.innerHTML = `<p class="text-center text-gray-500 italic">Memuat riwayat transaksi...</p>`;
+            try {
+                const { data: transactions, error } = await supabase
+                    .from('transactions')
+                    .select('*, transaction_items(product_id, quantity, price)');
+                
+                if (error) throw error;
+
+                // Memproses data untuk menyertakan nama produk
+                const productsMap = new Map(products.map(p => [p.id, p.name]));
+                const transactionsWithNames = transactions.map(tx => {
+                    const itemsWithNames = tx.transaction_items.map(item => ({
+                        ...item,
+                        product_name: productsMap.get(item.product_id)
+                    }));
+                    return { ...tx, transaction_items: itemsWithNames };
+                });
+
+                renderTransactions(transactionsWithNames);
+            } catch (error) {
+                console.error('Error fetching transactions:', error.message);
+                transactionsListEl.innerHTML = `<p class="text-center text-red-500 italic">Gagal memuat riwayat transaksi.</p>`;
             }
         }
 
@@ -235,28 +327,79 @@
             }
         }
 
-        // Proses checkout (dummy)
-        function checkout() {
+        // Proses checkout dan kirim ke database
+        async function checkout() {
             if (cart.length === 0) {
                 showMessage('Keranjang Anda kosong.', 'error');
                 return;
             }
-            // Logika checkout sederhana (misalnya, kirim data ke Supabase)
-            console.log('Pesanan berhasil:', cart);
-            showMessage('Pembayaran berhasil! Total: ' + totalPriceEl.textContent, 'success');
-            cart = [];
-            renderCart();
+
+            try {
+                // 1. Catat transaksi utama
+                const total = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const { data: transactionData, error: transactionError } = await supabase
+                    .from('transactions')
+                    .insert({ total_price: total })
+                    .select();
+
+                if (transactionError) throw transactionError;
+
+                const transactionId = transactionData[0].id;
+
+                // 2. Catat setiap item dalam transaksi
+                const itemsToInsert = cart.map(item => ({
+                    transaction_id: transactionId,
+                    product_id: item.id,
+                    quantity: item.quantity,
+                    price: item.price
+                }));
+
+                const { error: itemsError } = await supabase
+                    .from('transaction_items')
+                    .insert(itemsToInsert);
+                
+                if (itemsError) throw itemsError;
+
+                showMessage('Pembayaran berhasil! Transaksi dicatat.', 'success');
+                cart = [];
+                renderCart();
+
+            } catch (error) {
+                console.error('Error saat checkout:', error.message);
+                showMessage('Gagal mencatat transaksi. Coba lagi.', 'error');
+            }
+        }
+        
+        // === MANAJEMEN TAMPILAN TAB ===
+        function switchView(view) {
+            if (view === 'kasir') {
+                kasirViewEl.classList.remove('hidden');
+                riwayatViewEl.classList.add('hidden');
+                tabKasirBtn.classList.add('border-blue-600', 'text-blue-600');
+                tabRiwayatBtn.classList.remove('border-blue-600', 'text-blue-600');
+            } else {
+                kasirViewEl.classList.add('hidden');
+                riwayatViewEl.classList.remove('hidden');
+                tabRiwayatBtn.classList.add('border-blue-600', 'text-blue-600');
+                tabKasirBtn.classList.remove('border-blue-600', 'text-blue-600');
+                // Panggil fungsi untuk mengambil data transaksi saat tab Riwayat dibuka
+                fetchTransactions();
+            }
         }
 
         // === EVENT LISTENER ===
         checkoutBtn.addEventListener('click', checkout);
+        tabKasirBtn.addEventListener('click', () => switchView('kasir'));
+        tabRiwayatBtn.addEventListener('click', () => switchView('riwayat'));
 
         // === INISIALISASI ===
         // Panggil fungsi untuk memuat produk saat halaman dimuat
-        document.addEventListener('DOMContentLoaded', fetchProducts);
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchProducts();
+            switchView('kasir'); // Tampilkan tab kasir secara default
+        });
     </script>
 
 </body>
 
 </html>
-
